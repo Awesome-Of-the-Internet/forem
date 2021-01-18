@@ -76,14 +76,12 @@ module Admin
       @user = User.find(params[:id])
       begin
         Moderator::DeleteUser.call(user: @user)
-        link = helpers.link_to("the page", admin_users_gdpr_delete_requests_path, "data-no-instant" => true)
-        # rubocop:disable Rails/OutputSafety
+        link = helpers.tag.a("the page", href: admin_users_gdpr_delete_requests_path, data: { "no-instant" => true })
         message = "@#{@user.username} (email: #{@user.email.presence || 'no email'}, user_id: #{@user.id}) " \
           "has been fully deleted. " \
           "If this is a GDPR delete, delete them from Mailchimp & Google Analytics " \
-          " and confirm on #{link}.".html_safe
-        # rubocop:enable Rails/OutputSafety
-        flash[:success] = message
+          " and confirm on "
+        flash[:success] = helpers.safe_join([message, link, "."])
       rescue StandardError => e
         flash[:danger] = e.message
       end
@@ -104,9 +102,17 @@ module Admin
     def remove_identity
       identity = Identity.find(user_params[:identity_id])
       @user = identity.user
+
       begin
-        identity.delete
+        identity.destroy
+
         @user.update("#{identity.provider}_username" => nil)
+
+        # GitHub repositories are tied with the existence of the GitHub identity
+        # as we use the user's GitHub token to fetch them from the API.
+        # We should delete them when a user unlinks their GitHub account.
+        @user.github_repos.destroy_all if identity.provider.to_sym == :github
+
         flash[:success] = "The #{identity.provider.capitalize} identity was successfully deleted and backed up."
       rescue StandardError => e
         flash[:danger] = e.message
